@@ -167,9 +167,9 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         clientExchangerExtra.setSecret("secret");
         clientExchangerExtra.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
         clientExchangerExtra.setFullScopeAllowed(false);
-//        clientExchangerExtra.addScopeMapping(impersonateRole);
-//        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_ID));
-//        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_USERNAME));
+        clientExchangerExtra.addScopeMapping(impersonateRole);
+        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_ID));
+        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_USERNAME));
         clientExchangerExtra.addProtocolMapper(
                 AudienceProtocolMapper.createClaimMapper("client-exchanger-client-audience", clientExchanger.getClientId(), null, true, false, true)
         );
@@ -1175,6 +1175,7 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
 
     @Test
     public void testExchangeForBackAndForth() throws Exception {
+        // probably related to https://github.com/keycloak/keycloak/issues/31180
         testingClient.server().run(ClientTokenExchangeTest::setupRealm);
 
         // generate the first token for a public client
@@ -1190,9 +1191,6 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
         Assert.assertNotNull(token.getSessionId());
         String sid = token.getSessionId();
-
-        // TODO check
-        // ./mvnw "-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:8469" -Dtest=ClientTokenExchangeTest#testExchangeForBackAndForth -f testsuite/integration-arquillian/tests/base/pom.xml test
 
         // perform a second token exchange just to check everything is OK
         response = oauth.doTokenExchange(TEST, accessToken, "client-exchanger-extra", "client-exchanger", "secret");
