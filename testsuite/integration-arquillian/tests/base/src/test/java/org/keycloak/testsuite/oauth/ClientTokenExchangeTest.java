@@ -45,6 +45,7 @@ import org.keycloak.representations.idm.OAuth2ErrorRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.authorization.ClientPolicyRepresentation;
 import org.keycloak.representations.idm.authorization.DecisionStrategy;
+import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.ClientManager;
 import org.keycloak.services.managers.RealmManager;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionManagement;
@@ -154,7 +155,24 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         clientExchanger.addScopeMapping(impersonateRole);
         clientExchanger.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_ID));
         clientExchanger.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_USERNAME));
-        clientExchanger.addProtocolMapper(AudienceProtocolMapper.createClaimMapper("different-scope-client-audience", differentScopeClient.getClientId(), null, true, false, true));
+        clientExchanger.addProtocolMapper(
+                AudienceProtocolMapper.createClaimMapper("different-scope-client-audience", differentScopeClient.getClientId(), null, true, false, true)
+        );
+
+        ClientModel clientExchangerExtra = realm.addClient("client-exchanger-extra");
+        clientExchangerExtra.setClientId("client-exchanger-extra");
+        clientExchangerExtra.setPublicClient(false);
+        clientExchangerExtra.setDirectAccessGrantsEnabled(true);
+        clientExchangerExtra.setEnabled(true);
+        clientExchangerExtra.setSecret("secret");
+        clientExchangerExtra.setProtocol(OIDCLoginProtocol.LOGIN_PROTOCOL);
+        clientExchangerExtra.setFullScopeAllowed(false);
+//        clientExchangerExtra.addScopeMapping(impersonateRole);
+//        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_ID));
+//        clientExchangerExtra.addProtocolMapper(UserSessionNoteMapper.createUserSessionNoteMapper(IMPERSONATOR_USERNAME));
+        clientExchangerExtra.addProtocolMapper(
+                AudienceProtocolMapper.createClaimMapper("client-exchanger-client-audience", clientExchanger.getClientId(), null, true, false, true)
+        );
 
         ClientModel illegal = realm.addClient("illegal");
         illegal.setClientId("illegal");
@@ -246,6 +264,21 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         ResourceServer server = management.realmResourceServer();
         Policy clientPolicy = management.authz().getStoreFactory().getPolicyStore().create(server, clientRep);
         management.clients().exchangeToPermission(target).addAssociatedPolicy(clientPolicy);
+
+        // allow exchange client-exchanger to client-exchanger-extra
+        var clientExchangerExtraC = realm.getClientByClientId("client-exchanger-extra");
+        management.clients().setPermissionsEnabled(clientExchangerExtraC, true);
+        management.clients().exchangeToPermission(clientExchangerExtraC).addAssociatedPolicy(clientPolicy);
+
+        // permission for exchange "client-exchanger-extra" to "client-exchanger"
+        ClientPolicyRepresentation fromClientExchangerExtra = new ClientPolicyRepresentation();
+        fromClientExchangerExtra.setName("From client-exchanger-extra");
+        fromClientExchangerExtra.addClient(clientExchangerExtra.getId());
+
+        var clientExchangerC = realm.getClientByClientId("client-exchanger");
+        management.clients().setPermissionsEnabled(clientExchangerC, true);
+        Policy fromClientExchangerExtraPolicy = management.authz().getStoreFactory().getPolicyStore().create(server, fromClientExchangerExtra);
+        management.clients().exchangeToPermission(clientExchangerC).addAssociatedPolicy(fromClientExchangerExtraPolicy);
 
         // permission for user impersonation for a client
 
@@ -1077,7 +1110,6 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         testingClient.server().run(ClientTokenExchangeTest::setupRealm);
         oauth.realm(TEST);
         oauth.clientId("direct-legal");
-        oauth.scope(OAuth2Constants.SCOPE_OPENID);
         ClientsResource clients = adminClient.realm(oauth.getRealm()).clients();
         ClientRepresentation rep = clients.findByClientId(oauth.getClientId()).get(0);
         rep.getAttributes().put(OIDCConfigAttributes.BACKCHANNEL_LOGOUT_URL, oauth.APP_ROOT + "/admin/backchannelLogout");
@@ -1113,7 +1145,7 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         String accessToken = response.getAccessToken();
         TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
         AccessToken token = accessTokenVerifier.parse().getToken();
-        Assert.assertEquals(token.getPreferredUsername(), "user");
+        Assert.assertEquals("user", token.getPreferredUsername());
         assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
         Assert.assertNotNull(token.getSessionId());
         String sid = token.getSessionId();
@@ -1126,7 +1158,7 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         token = accessTokenVerifier.parse().getToken();
         Assert.assertEquals("client-exchanger", token.getIssuedFor());
         Assert.assertEquals("target", token.getAudience()[0]);
-        Assert.assertEquals(token.getPreferredUsername(), "user");
+        Assert.assertEquals("user", token.getPreferredUsername());
         Assert.assertEquals(sid, token.getSessionId());
 
         // perform a second token exchange just to check everything is OK
@@ -1137,7 +1169,53 @@ public class ClientTokenExchangeTest extends AbstractKeycloakTest {
         token = accessTokenVerifier.parse().getToken();
         Assert.assertEquals("client-exchanger", token.getIssuedFor());
         Assert.assertEquals("target", token.getAudience()[0]);
-        Assert.assertEquals(token.getPreferredUsername(), "user");
+        Assert.assertEquals("user", token.getPreferredUsername());
+        Assert.assertEquals(sid, token.getSessionId());
+    }
+
+    @Test
+    public void testExchangeForBackAndForth() throws Exception {
+        testingClient.server().run(ClientTokenExchangeTest::setupRealm);
+
+        // generate the first token for a public client
+        oauth.realm(TEST);
+        oauth.clientId("direct-public");
+//        oauth.scope("openid profile"); // WOULD WORK
+        oauth.scope("openid profile offline_access");
+        OAuthClient.AccessTokenResponse response = oauth.doGrantAccessTokenRequest("secret", "user", "password");
+        String accessToken = response.getAccessToken();
+        TokenVerifier<AccessToken> accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
+        AccessToken token = accessTokenVerifier.parse().getToken();
+        Assert.assertEquals("user", token.getPreferredUsername());
+        assertTrue(token.getRealmAccess() == null || !token.getRealmAccess().isUserInRole("example"));
+        Assert.assertNotNull(token.getSessionId());
+        String sid = token.getSessionId();
+
+        // TODO check
+        // ./mvnw "-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:8469" -Dtest=ClientTokenExchangeTest#testExchangeForBackAndForth -f testsuite/integration-arquillian/tests/base/pom.xml test
+
+        // perform a second token exchange just to check everything is OK
+        response = oauth.doTokenExchange(TEST, accessToken, "client-exchanger-extra", "client-exchanger", "secret");
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
+        accessToken = response.getAccessToken();
+        accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
+        token = accessTokenVerifier.parse().getToken();
+        Assert.assertEquals("client-exchanger", token.getIssuedFor());
+        Assert.assertTrue(Arrays.asList(token.getAudience()).contains("client-exchanger-extra"));
+        Assert.assertEquals("user", token.getPreferredUsername());
+        Assert.assertEquals(sid, token.getSessionId());
+
+        // perform another token exchange from client-exchanger-extra -> client-exchanger
+        response = oauth.doTokenExchange(TEST, accessToken, "client-exchanger", "client-exchanger-extra", "secret");
+        // fails because token invalid because client session not present due to offline_access scope
+        // res 400 invalid token
+        assertEquals(Response.Status.OK.getStatusCode(), response.getStatusCode());
+        accessToken = response.getAccessToken();
+        accessTokenVerifier = TokenVerifier.create(accessToken, AccessToken.class);
+        token = accessTokenVerifier.parse().getToken();
+        Assert.assertEquals("client-exchanger-extra", token.getIssuedFor());
+        Assert.assertTrue(Arrays.asList(token.getAudience()).contains("client-exchanger"));
+        Assert.assertEquals("user", token.getPreferredUsername());
         Assert.assertEquals(sid, token.getSessionId());
     }
 
