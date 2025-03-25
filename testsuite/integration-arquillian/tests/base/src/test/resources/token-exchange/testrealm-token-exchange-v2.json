@@ -512,6 +512,19 @@
     "notBefore" : 0,
     "groups" : [ ]
   }, {
+    "id" : "0d4c5bbe-bea7-4995-bde9-2695a17c1c68",
+    "username" : "service-account-target-client2",
+    "emailVerified" : false,
+    "createdTimestamp" : 1732884723976,
+    "enabled" : true,
+    "totp" : false,
+    "serviceAccountClientId" : "target-client2",
+    "credentials" : [ ],
+    "disableableCredentialTypes" : [ ],
+    "requiredActions" : [ ],
+    "notBefore" : 0,
+    "groups" : [ ]
+  }, {
     "id" : "f0c55466-85c8-4f1d-abd8-ccce9d8ec549",
     "username" : "service-account-subject-client",
     "emailVerified" : false,
@@ -881,7 +894,7 @@
       "authenticationFlowBindingOverrides" : { },
       "fullScopeAllowed" : false,
       "nodeReRegistrationTimeout" : -1,
-      "defaultClientScopes" : [ "service_account", "acr", "default-scope1", "roles", "basic" ],
+      "defaultClientScopes" : [ "service_account", "acr", "default-scope1", "req-scope-2", "roles", "basic" ],
       "optionalClientScopes" : [ "optional-scope2", "offline_access" ]
     }, {
     "id" : "2daeae03-ff78-4f79-8e72-1c4d443e1655",
@@ -1081,6 +1094,7 @@
   }, {
     "id" : "8d76ccf3-d0c2-4110-9120-06533cf9949c",
     "clientId" : "target-client2",
+    "secret" : "secret",
     "name" : "",
     "description" : "",
     "rootUrl" : "",
@@ -1098,8 +1112,8 @@
     "standardFlowEnabled" : false,
     "implicitFlowEnabled" : false,
     "directAccessGrantsEnabled" : false,
-    "serviceAccountsEnabled" : false,
-    "publicClient" : true,
+    "serviceAccountsEnabled" : true,
+    "publicClient" : false,
     "frontchannelLogout" : true,
     "protocol" : "openid-connect",
     "attributes" : {
@@ -1108,7 +1122,8 @@
       "backchannel.logout.session.required" : "true",
       "post.logout.redirect.uris" : "+",
       "oauth2.device.authorization.grant.enabled" : "false",
-      "backchannel.logout.revoke.offline.tokens" : "false"
+      "backchannel.logout.revoke.offline.tokens" : "false",
+      "standard.token.exchange.enabled": "true"
     },
     "authenticationFlowBindingOverrides" : { },
     "fullScopeAllowed" : true,

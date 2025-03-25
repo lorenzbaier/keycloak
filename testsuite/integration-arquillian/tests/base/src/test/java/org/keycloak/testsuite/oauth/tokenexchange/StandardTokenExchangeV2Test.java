@@ -370,6 +370,8 @@ public class StandardTokenExchangeV2Test extends AbstractClientPoliciesTest {
 
     @Test
     public void testTransientOfflineSessionForRequester() throws Exception {
+        // ./mvnw -f testsuite/integration-arquillian/pom.xml clean install "-Dtest=org.keycloak.testsuite.oauth.tokenexchange.StandardTokenExchangeV2Test#testTransientOfflineSessionForRequester"
+        // "-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:8469"
         final RealmResource realm = adminClient.realm(TEST);
         final UserRepresentation john = ApiUtil.findUserByUsername(realm, "john");
         try (ClientAttributeUpdater clientUpdater2 = ClientAttributeUpdater.forClient(adminClient, TEST, "subject-client")
@@ -404,6 +406,42 @@ public class StandardTokenExchangeV2Test extends AbstractClientPoliciesTest {
             realm.deleteSession(getSessionIdFromToken(accessToken), true);
             assertIntrospectError(exchangedTokenString, "requester-client", "secret");
             assertUserInfoError(exchangedTokenString, "requester-client", "secret", "invalid_token", Errors.USER_SESSION_NOT_FOUND);
+        }
+    }
+
+    @Test
+    public void testOfflineSessionExchangeTwice() throws Exception {
+        // LB MARKER
+        // ./mvnw -f testsuite/integration-arquillian/pom.xml -f tests/pom.xml clean install "-Dtest=org.keycloak.testsuite.oauth.tokenexchange.StandardTokenExchangeV2Test#testOfflineSessionExchangeTwice"
+        // "-Dmaven.surefire.debug=-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=localhost:8469"
+        final RealmResource realm = adminClient.realm(TEST);
+        final UserRepresentation john = ApiUtil.findUserByUsername(realm, "john");
+        try (ClientAttributeUpdater clientUpdater2 = ClientAttributeUpdater.forClient(adminClient, TEST, "subject-client")
+                .setOptionalClientScopes(List.of(OAuth2Constants.OFFLINE_ACCESS))
+                .update();
+        ) {
+            // Login, which creates offline-session
+            oauth.realm(TEST);
+            final String accessToken = resourceOwnerLogin("john", "password", "subject-client", "secret", OAuth2Constants.OFFLINE_ACCESS).getAccessToken();
+
+            // Regular token-exchange with the access token as requested_token_type
+            oauth.scope(OAuth2Constants.SCOPE_OPENID + " " + "optional-scope2"); // add openid scope for the user-info request
+            AccessTokenResponse response = tokenExchange(accessToken, "requester-client", "secret", null, null);
+            assertEquals(response.getStatusCode() + " response error: " + response.getError() + " - " + response.getErrorDescription(), OAuth2Constants.ACCESS_TOKEN_TYPE, response.getIssuedTokenType());
+            final String exchangedTokenString = response.getAccessToken();
+            final AccessToken exchangedToken = TokenVerifier.create(exchangedTokenString, AccessToken.class).parse().getToken();
+            assertEquals(getSessionIdFromToken(accessToken), exchangedToken.getSessionId());
+            assertEquals("requester-client", exchangedToken.getIssuedFor());
+            assertAccessTokenContext(exchangedToken.getId(), AccessTokenContext.SessionType.OFFLINE_TRANSIENT_CLIENT,
+                    AccessTokenContext.TokenType.REGULAR, OAuth2Constants.TOKEN_EXCHANGE_GRANT_TYPE);
+
+            // second token exchange
+            oauth.scope(OAuth2Constants.SCOPE_OPENID);
+            AccessTokenResponse response2 = tokenExchange(exchangedTokenString, "target-client2", "secret", null, null);
+            assertEquals(response2.getStatusCode() + " response error: " + response2.getError() + " - " + response2.getErrorDescription(), Response.Status.OK.getStatusCode(), response2.getStatusCode());
+            final AccessToken secondExchangedToken = TokenVerifier.create(response2.getAccessToken(), AccessToken.class).parse().getToken();
+            assertEquals(getSessionIdFromToken(accessToken), secondExchangedToken.getSessionId());
+            assertEquals("target-client2", secondExchangedToken.getIssuedFor());
         }
     }
 
